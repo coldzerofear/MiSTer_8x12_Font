@@ -6448,22 +6448,40 @@ void PrintDirectory(int expand)
 
 static void set_text(const char *message, unsigned char code)
 {
-	char s[40];
+	char s[256];
 	int i = 0, l = 1;
+	int len = 0;
+	int cnt = 0;
 
 	OsdWrite(0, "", 0, 0);
 
 	do
 	{
-		s[i++] = *message;
+		s[i] = *message;
+		if (cnt == 0) 
+		{
+			cnt = utf8_charlen(s[i]) - 1;
+			len++;
+		}
+		else
+		{
+			cnt -= 1;
+		}
 
 		// line full or line break
-		if ((i == 29) || (*message == '\n') || !*message)
+		if ((len == 29) || (*message == '\n') || !*message)
 		{
-			s[--i] = 0;
+			s[i] = 0;
 			OsdWrite(l++, s, 0, 0);
 			i = 0;  // start next line
+			len = 0;
+			cnt = 0;
 		}
+		else
+		{
+			i++;
+		}
+
 	} while (*message++);
 
 	if (code && (l <= 7))

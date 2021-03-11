@@ -33,6 +33,7 @@
 #include "cheats.h"
 #include "video.h"
 #include "audio.h"
+#include "font.h"
 
 #include "support.h"
 
@@ -1923,7 +1924,7 @@ static char pchar[] = { 0x8C, 0x8F, 0x7F };
 
 static void tx_progress(const char* name, unsigned int progress)
 {
-	static char progress_buf[128];
+	static char progress_buf[256];
 	memset(progress_buf, 0, sizeof(progress_buf));
 
 	if (progress > PROGRESS_MAX) progress = PROGRESS_MAX;
@@ -1931,8 +1932,23 @@ static void tx_progress(const char* name, unsigned int progress)
 	progress /= PROGRESS_CHARS;
 
 	char *buf = progress_buf;
-	sprintf(buf, "\n\n %.27s\n ", name);
-	buf += strlen(buf);
+
+	sprintf(buf, "\n\n ");
+	buf += 3;
+	
+	int len_utf8 = utf8_strlen(name);
+	int len_byte;
+
+	if (len_utf8 > 27) {
+		len_byte = index_from_utf8(name, 28) - 1;
+	} else {
+		len_byte = strlen(name);
+	}
+	memcpy(buf, name, len_byte);
+	buf += len_byte;
+
+	sprintf(buf, "\n ");
+	buf += 2;
 
 	for (unsigned int i = 0; i <= progress; i++) buf[i] = (i < progress) ? 0x7F : c;
 	buf[PROGRESS_CNT] = 0;
