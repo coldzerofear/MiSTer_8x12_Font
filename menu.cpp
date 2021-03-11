@@ -59,6 +59,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "recent.h"
 #include "support.h"
 #include "bootcore.h"
+#include "font.h"
 
 /*menu states*/
 enum MENU
@@ -6317,7 +6318,7 @@ void ScrollLongName(void)
 // print directory contents
 void PrintDirectory(int expand)
 {
-	char s[40];
+	char s[256];
 	ScrollReset();
 
 	if (!cfg.browse_expand) expand = 0;
@@ -6326,7 +6327,7 @@ void PrintDirectory(int expand)
 	{
 		int k = flist_iFirstEntry() + OsdGetSize() - 1;
 		if (flist_nDirEntries() && k == flist_iSelectedEntry() && k <= flist_nDirEntries()
-			&& strlen(flist_DirItem(k)->altname) > 28 && !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0])
+			&& utf8_strlen(flist_DirItem(k)->altname) > 28 && !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0])
 			&& flist_DirItem(k)->de.d_type != DT_DIR)
 		{
 			//make room for last expanded line
@@ -6336,41 +6337,51 @@ void PrintDirectory(int expand)
 
 	int i = 0;
 	int k = flist_iFirstEntry();
+	char *name;
+
 	while(i < OsdGetSize())
 	{
 		char leftchar = 0;
-		memset(s, ' ', 32); // clear line buffer
-		s[32] = 0;
-		int len2 = 0;
+		memset(s, ' ', 256); // clear line buffer
+		s[255] = 0;
 		leftchar = 0;
-		int len = 0;
+		int len_byte = 0;
+		int len2_byte = 0;
+		int len_utf8 = 0;
+		int len2_utf8 = 0;
+
+		name = flist_DirItem(k)->altname;
 
 		if (k < flist_nDirEntries())
 		{
-			len = strlen(flist_DirItem(k)->altname); // get name length
-			if (len > 28)
+			len_utf8 = utf8_strlen(name); // get name length
+			len_byte = strlen(name);
+			if (len_utf8 > 28)
 			{
-				len2 = len - 27;
-				if (len2 > 27) len2 = 27;
-				if (!expand) len2 = 0;
+				len2_utf8 = len_utf8 - 27;
+				if (len2_utf8 > 27) len2_utf8 = 27;
+				if (!expand) len2_utf8 = 0;
 
-				len = 27; // trim display length if longer than 30 characters
-				s[28] = 22;
+				len_byte = index_from_utf8(name, 28) - 1;
+				len2_byte = len2_utf8 == 0 ? 0 : index_from_utf8(name + len_byte, len2_utf8);
+
+				len_utf8 = 27; // trim display length if longer than 30 characters
+				s[index_from_utf8(name, 28)] = 22;
 			}
 
 			if((flist_DirItem(k)->de.d_type == DT_DIR) && (fs_Options & SCANO_CORES) && (flist_DirItem(k)->altname[0] == '_'))
 			{
-				strncpy(s + 1, flist_DirItem(k)->altname+1, len-1);
+				strncpy(s + 1, name + 1, len_byte-1);
 			}
 			else
 			{
-				strncpy(s + 1, flist_DirItem(k)->altname, len); // display only name
+				strncpy(s + 1, name, len_byte); // display only name
 			}
 
 			char *datecode = flist_DirItem(k)->datecode;
 			if (flist_DirItem(k)->de.d_type == DT_DIR) // mark directory with suffix
 			{
-				if (!strcmp(flist_DirItem(k)->altname, ".."))
+				if (!strcmp(name, ".."))
 				{
 					strcpy(&s[19], " <UP-DIR>");
 				}
@@ -6378,7 +6389,7 @@ void PrintDirectory(int expand)
 				{
 					strcpy(&s[22], " <DIR>");
 				}
-				len2 = 0;
+				len2_byte = 0;
 			}
 			else if (!cfg.rbf_hide_datecode && datecode[0])
 			{
@@ -6393,12 +6404,12 @@ void PrintDirectory(int expand)
 				s[n++] = datecode[4];
 				s[n++] = datecode[5];
 
-				if (len >= 19)
+				if (len_byte >= 19)
 				{
 					s[19] = 22;
 					s[28] = ' ';
 				}
-				len2 = 0;
+				len2_byte = 0;
 			}
 
 			if (!i && k) leftchar = 17;
@@ -6412,9 +6423,9 @@ void PrintDirectory(int expand)
 				if (i == 6) strcpy(s, "      Missing directory:");
 				if (i == 8)
 				{
-					len = strlen(home_dir);
-					if (len > 27) len = 27;
-					strncpy(s + 1 + ((27 - len) / 2), home_dir, len);
+					len_byte = strlen(home_dir);
+					if (len_byte > 27) len_byte = 27;
+					strncpy(s + 1 + ((27 - len_byte) / 2), home_dir, len_byte);
 				}
 			}
 		}
@@ -6423,10 +6434,10 @@ void PrintDirectory(int expand)
 		OsdWriteOffset(i, s, sel, 0, 0, leftchar);
 		i++;
 
-		if (sel && len2)
+		if (sel && len2_byte)
 		{
-			len = strlen(flist_DirItem(k)->altname);
-			strcpy(s+1, flist_DirItem(k)->altname + len - len2);
+			len_byte = strlen(flist_DirItem(k)->altname);
+			strcpy(s+1, name + len_byte - len2_byte);
 			OsdWriteOffset(i, s, sel, 0, 0, leftchar);
 			i++;
 		}

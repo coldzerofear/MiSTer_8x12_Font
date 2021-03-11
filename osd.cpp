@@ -45,6 +45,7 @@ as rotated copies of the first 128 entries.  -- AMR
 #include "logo.h"
 #include "user_io.h"
 #include "hardware.h"
+#include "font.h"
 
 #include "support.h"
 
@@ -245,7 +246,8 @@ static void draw_title(const unsigned char *p)
 // write a null-terminated string <s> to the OSD buffer starting at line <n>
 void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsigned char stipple, char offset, char leftchar, char usebg, int maxinv, int mininv)
 {
-	//printf("OsdWriteOffset(%d)\n", n);
+	// printf("OsdWriteOffset(%d)\n", n);
+
 	unsigned short i;
 	unsigned char b;
 	const unsigned char *p;
@@ -268,6 +270,8 @@ void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsign
 
 	unsigned char xormask = 0;
 	unsigned char xorchar = 0;
+
+	int len_utf8;
 
 	i = 0;
 	// send all characters in string to OSD
@@ -320,8 +324,11 @@ void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsign
 		}
 		else
 		{
-			b = *s++;
+			b = *s;
+
 			if (!b) break;
+
+			len_utf8 = utf8_charlen(b);
 
 			if (b == 0xb)
 			{
@@ -344,7 +351,17 @@ void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsign
 			else if (i<(linelimit - 8))
 			{  // normal character
 				unsigned char c;
-				p = &charfont[b][0];
+				if (len_utf8 == 1)
+				{
+					// ASCII and MiSTer special bitmap character
+					p = &charfont[b][0];
+				}
+				else
+				{
+					// UTF-8 multibyte character
+					freetype_render((unsigned char *)s);
+					p = &rendered_font[0];
+				}
 				for (c = 0; c<8; c++) {
 					char bg = usebg ? framebuffer[n][i+c-22] : 0;
 					osdbuf[osdbufpos++] = (((*p++ << offset)&stipplemask) ^ xormask ^ xorchar) | bg;
@@ -352,6 +369,8 @@ void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsign
 				}
 				i += 8;
 			}
+
+			s += len_utf8;
 		}
 	}
 
@@ -596,6 +615,8 @@ static void print_line(unsigned char line, const char *hdr, const char *text, un
 void ScrollText(char n, const char *str, int off, int len, int max_len, unsigned char invert)
 {
 	// this function is called periodically when a string longer than the window is displayed.
+
+	// need to handle utf8 multibyte *str
 
 #define BLANKSPACE 10 // number of spaces between the end and start of repeated name
 
