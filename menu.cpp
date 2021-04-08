@@ -1100,6 +1100,7 @@ void HandleUI(void)
 		case KEY_F12:
 			menu = true;
 			menu_key_set(KEY_F12 | UPSTROKE);
+			if(video_fb_state()) video_menu_bg((user_io_8bit_set_status(0, 0) & 0xE) >> 1);
 			video_fb_enable(0);
 			break;
 
@@ -5959,7 +5960,7 @@ void HandleUI(void)
 			video_chvt(2);
 			video_fb_enable(1);
 			vga_nag();
-			sprintf(cmd, "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\ncd $(dirname %s)\n%s\necho \"Press any key to continue\"\n", path, path);
+			sprintf(cmd, "#!/bin/bash\nexport LC_ALL=en_US.UTF-8\nexport HOME=/root\ncd $(dirname %s)\n%s\necho \"Press any key to continue\"\n", path, path);
 			unlink("/tmp/script");
 			FileSave("/tmp/script", cmd, strlen(cmd));
 			ttypid = fork();
@@ -5988,6 +5989,7 @@ void HandleUI(void)
 		{
 			if (c & UPSTROKE)
 			{
+				video_menu_bg((user_io_8bit_set_status(0, 0) & 0xE) >> 1);
 				video_fb_enable(0);
 				menustate = MENU_SYSTEM1;
 				menusub = 3;

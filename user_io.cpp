@@ -1952,17 +1952,15 @@ static void show_core_info(int info_n)
 static int process_ss(const char *rom_name)
 {
 	static char ss_name[1024] = {};
-	static uint32_t ss_cnt = 0;
+	static char *ss_sufx = 0;
 	static int memfd = -1;
+	static uint32_t ss_cnt[4] = {};
+	static void *base[4] = {};
 
 	if (!ss_base) return 0;
 
-	uint32_t map_addr = ss_base;
-
 	if (rom_name)
 	{
-		FileGenerateSavestatePath(rom_name, ss_name);
-
 		if (memfd < 0)
 		{
 			memfd = open("/dev/mem", O_RDWR | O_SYNC);
@@ -1973,57 +1971,57 @@ static int process_ss(const char *rom_name)
 			}
 		}
 
-		ss_cnt = 0;
 		uint32_t len = ss_size;
-		uint32_t clr_addr = map_addr;
+		uint32_t map_addr = ss_base;
+		fileTYPE f = {};
 
-		for (int i = 0; i < 16; i++)
+		for (int i = 0; i < 4; i++)
 		{
-			void *base = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, clr_addr);
-			if (base == (void *)-1)
-			{
-				printf("Unable to mmap (0x%X, %d)!\n", clr_addr, len);
-				close(memfd);
-				memfd = -1;
-				return 0;
-			}
-
-			memset(base, 0, len);
-			munmap(base, len);
-			clr_addr += len;
-		}
-
-		if (ss_name[0] && FileExists(ss_name))
-		{
-			void *base = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, map_addr);
-			if (base == (void *)-1)
+			if (!base[i]) base[i] = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, map_addr);
+			if (base[i] == (void *)-1)
 			{
 				printf("Unable to mmap (0x%X, %d)!\n", map_addr, len);
-				return 0;
-			}
-
-			fileTYPE f = {};
-			if (!FileOpen(&f, ss_name))
-			{
-				printf("Unable to open file: %s\n", ss_name);
-				munmap(base, len);
 			}
 			else
 			{
-				int ret = FileReadAdv(&f, base, len);
-				FileClose(&f);
-				*(uint32_t*)base = 1;
-				ss_cnt = 1;
-				munmap(base, len);
-				printf("process_ss: read %d bytes from file: %s\n", ret, ss_name);
-				return 1;
+				ss_cnt[i] = 0;
+				memset(base[i], 0, len);
+
+				if (!i)
+				{
+					FileGenerateSavestatePath(rom_name, ss_name, 1);
+					printf("Base SavestatePath=%s\n", ss_name);
+					if (!FileExists(ss_name)) FileGenerateSavestatePath(rom_name, ss_name, 0);
+				}
+				else
+				{
+					FileGenerateSavestatePath(rom_name, ss_name, i + 1);
+				}
+
+				if (FileExists(ss_name))
+				{
+					if (!FileOpen(&f, ss_name))
+					{
+						printf("Unable to open file: %s\n", ss_name);
+					}
+					else
+					{
+						int ret = FileReadAdv(&f, base[i], len);
+						FileClose(&f);
+						*(uint32_t*)(base[i]) = 1;
+						ss_cnt[i] = 1;
+						printf("process_ss: read %d bytes from file: %s\n", ret, ss_name);
+					}
+				}
 			}
+
+			map_addr += len;
 		}
 
+		FileGenerateSavestatePath(rom_name, ss_name, 1);
+		ss_sufx = ss_name + strlen(ss_name) - 4;
 		return 1;
 	}
-
-	if (!ss_name[0]) return 0;
 
 	static unsigned long ss_timer = 0;
 	if (ss_timer && !CheckTimer(ss_timer)) return 0;
@@ -2031,49 +2029,36 @@ static int process_ss(const char *rom_name)
 
 	if (memfd >= 0)
 	{
-		uint32_t len = 4 * 1024;
-
-		void *base = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, map_addr);
-		if (base == (void *)-1)
+		fileTYPE f = {};
+		for (int i = 0; i < 4; i++)
 		{
-			printf("Unable to mmap (0x%X, %d)!\n", map_addr, len);
-			return 0;
-		}
-
-		uint32_t curcnt = ((uint32_t*)base)[0];
-		uint32_t size = ((uint32_t*)base)[1];
-		munmap(base, len);
-
-		if (curcnt > ss_cnt)
-		{
-			ss_cnt = curcnt;
-			len = 512 * 1024;
-
-			if (size) size = (size + 2) * 4;
-			if (size > 0 && size <= len)
+			if (base[i] && (base[i] != (void *)-1))
 			{
-				OsdDisable();
-				Info("Saving the state", 500);
+				uint32_t curcnt = ((uint32_t*)(base[i]))[0];
+				uint32_t size = ((uint32_t*)(base[i]))[1];
 
-				void *base = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, map_addr);
-				if (base == (void *)-1)
+				if (curcnt != ss_cnt[i])
 				{
-					printf("Unable to mmap (0x%X, %d)!\n", map_addr, len);
-					return 0;
-				}
+					ss_cnt[i] = curcnt;
+					if (size) size = (size + 2) * 4;
+					if (size > 0 && size <= ss_size)
+					{
+						MenuHide();
+						Info("Saving the state", 500);
 
-				fileTYPE f = {};
-				if (!FileOpenEx(&f, ss_name, O_CREAT | O_TRUNC | O_RDWR | O_SYNC))
-				{
-					printf("Unable to create file: %s\n", ss_name);
-					munmap(base, len);
-					return 0;
+						*ss_sufx = i + '1';
+						if (FileOpenEx(&f, ss_name, O_CREAT | O_TRUNC | O_RDWR | O_SYNC))
+						{
+							int ret = FileWriteAdv(&f, base[i], size);
+							FileClose(&f);
+							printf("Wrote %d bytes to file: %s\n", ret, ss_name);
+						}
+						else
+						{
+							printf("Unable to create file: %s\n", ss_name);
+						}
+					}
 				}
-
-				int ret = FileWriteAdv(&f, base, size);
-				FileClose(&f);
-				munmap(base, len);
-				printf("Wrote %d bytes to file: %s\n", ret, ss_name);
 			}
 		}
 	}
@@ -2651,34 +2636,33 @@ void user_io_poll()
 	{
 		if (is_st()) tos_poll();
 
-		static uint8_t buffer[4][8192];
-		uint32_t lba;
-		uint16_t req_type = 0;
-		uint16_t c = user_io_sd_get_status(&lba, &req_type);
-		//if(c&3) printf("user_io_sd_get_status: cmd=%02x, lba=%08x\n", c, lba);
-
-		// valid sd commands start with "5x" to avoid problems with
-		// cores that don't implement this command
-		if ((c & 0xf0) == 0x50)
+		while (1)
 		{
-			// check if core requests configuration
-			if (c & 0x08)
-			{
-				printf("core requests SD config\n");
-				user_io_sd_set_config();
-			}
+			const int buf_sz = 16;
+			static uint8_t buffer[4][buf_sz * 512];
+			uint32_t lba;
+			uint16_t req_type = 0;
+			uint16_t c = user_io_sd_get_status(&lba, &req_type);
+			//if(c&3) printf("user_io_sd_get_status: cmd=%02x, lba=%08x\n", c, lba);
 
-			if(c & 0x3802)
+			// valid sd commands start with "5x" to avoid problems with
+			// cores that don't implement this command
+			if ((c & 0xf0) == 0x50)
 			{
-				int disk = 3;
-				if (c & 0x0002) disk = 0;
-				else if (c & 0x0800) disk = 1;
-				else if (c & 0x1000) disk = 2;
-
-				// only write if the inserted card is not sdhc or
-				// if the core uses sdhc
-				if(c & 0x04)
+				// check if core requests configuration
+				if ((c & 0xC) == 0xC)
 				{
+					printf("core requests SD config\n");
+					user_io_sd_set_config();
+				}
+
+				if (c & 0x3802)
+				{
+					int disk = 3;
+					if (c & 0x0002) disk = 0;
+					else if (c & 0x0800) disk = 1;
+					else if (c & 0x1000) disk = 2;
+
 					//printf("SD WR %d on %d\n", lba, disk);
 
 					if (use_save) menu_process_save();
@@ -2686,7 +2670,8 @@ void user_io_poll()
 					buffer_lba[disk] = -1;
 
 					// Fetch sector data from FPGA ...
-					spi_uio_cmd_cont(UIO_SECTOR_WR);
+					EnableIO();
+					spi_w(UIO_SECTOR_WR | ((c & 4) ? 0 : ((disk + 1) << 8)));
 					spi_block_read(buffer[disk], fio_size);
 					DisableIO();
 
@@ -2709,8 +2694,8 @@ void user_io_poll()
 					else
 					{
 						// ... and write it to disk
-						__off64_t size = sd_image[disk].size>>9;
-						if (size && size>=lba)
+						__off64_t size = sd_image[disk].size >> 9;
+						if (size && size >= lba)
 						{
 							diskled_on();
 							if (FileSeekLBA(&sd_image[disk], lba))
@@ -2727,81 +2712,98 @@ void user_io_poll()
 						}
 					}
 				}
-			}
-			else if (c & 0x0701)
-			{
-				int disk = 3;
-				if (c & 0x0001) disk = 0;
-				else if (c & 0x0100) disk = 1;
-				else if (c & 0x0200) disk = 2;
-
-				//printf("SD RD %d on %d, WIDE=%d\n", lba, disk, fio_size);
-
-				int done = 0;
-				uint32_t offset;
-
-				if ((buffer_lba[disk] == (uint64_t)-1) || lba < buffer_lba[disk] || lba >(buffer_lba[disk] + 15))
+				else if (c & 0x0701)
 				{
-					if (sd_image[disk].size)
+					int disk = 3;
+					if (c & 0x0001) disk = 0;
+					else if (c & 0x0100) disk = 1;
+					else if (c & 0x0200) disk = 2;
+
+					//printf("SD RD %d on %d, WIDE=%d\n", lba, disk, fio_size);
+
+					int done = 0;
+					uint32_t offset;
+
+					if ((buffer_lba[disk] == (uint64_t)-1) || lba < buffer_lba[disk] || lba >(buffer_lba[disk] + buf_sz - 1))
 					{
-						diskled_on();
-						if (FileSeekLBA(&sd_image[disk], lba))
+						buffer_lba[disk] = -1;
+						if (sd_image[disk].size)
 						{
-							if (FileReadAdv(&sd_image[disk], buffer[disk], sizeof(buffer[disk])))
+							diskled_on();
+							if (FileSeekLBA(&sd_image[disk], lba))
 							{
-								done = 1;
+								if (FileReadAdv(&sd_image[disk], buffer[disk], sizeof(buffer[disk])))
+								{
+									done = 1;
+									buffer_lba[disk] = lba;
+								}
 							}
 						}
-					}
 
-					//Even after error we have to provide the block to the core
-					//Give an empty block.
-					if (!done)
-					{
-						if (sd_image[disk].type == 2)
+						//Even after error we have to provide the block to the core
+						//Give an empty block.
+						if (!done)
 						{
-							if (is_megacd())
+							if (sd_image[disk].type == 2)
 							{
-								mcd_fill_blanksave(buffer[disk], lba);
-							}
-							else if (is_pce())
-							{
-								memset(buffer[disk], 0, sizeof(buffer[disk]));
-								if (!lba)
+								if (is_megacd())
 								{
-									memcpy(buffer[disk], "HUBM\x00\x88\x10\x80", 8);
+									mcd_fill_blanksave(buffer[disk], lba);
+								}
+								else if (is_pce())
+								{
+									memset(buffer[disk], 0, sizeof(buffer[disk]));
+									if (!lba)
+									{
+										memcpy(buffer[disk], "HUBM\x00\x88\x10\x80", 8);
+									}
+								}
+								else
+								{
+									memset(buffer[disk], -1, sizeof(buffer[disk]));
 								}
 							}
 							else
 							{
-								memset(buffer[disk], -1, sizeof(buffer[disk]));
+								memset(buffer[disk], 0, sizeof(buffer[disk]));
 							}
+						}
+
+						offset = 0;
+					}
+					else
+					{
+						offset = (lba - buffer_lba[disk])*512;
+						done = 1;
+					}
+
+					//hexdump(buffer, 32, 0);
+
+					// data is now stored in buffer. send it to fpga
+					EnableIO();
+					spi_w(UIO_SECTOR_RD | ((c & 4) ? 0 : ((disk + 1) << 8)));
+					spi_block_write(buffer[disk] + offset, fio_size);
+					DisableIO();
+
+					if (sd_image[disk].type == 2)
+					{
+						buffer_lba[disk] = -1;
+					}
+					else if(done && (lba == (buffer_lba[disk] + buf_sz - 1)))
+					{
+						diskled_on();
+						if (FileReadAdv(&sd_image[disk], buffer[disk], sizeof(buffer[disk])))
+						{
+							buffer_lba[disk] += buf_sz;
 						}
 						else
 						{
 							memset(buffer[disk], 0, sizeof(buffer[disk]));
+							buffer_lba[disk] = -1;
 						}
 					}
-
-					buffer_lba[disk] = lba;
-					offset = 0;
 				}
-				else
-				{
-					offset = (lba - buffer_lba[disk])*512;
-				}
-
-				//hexdump(buffer, 32, 0);
-
-				// data is now stored in buffer. send it to fpga
-				spi_uio_cmd_cont(UIO_SECTOR_RD);
-				spi_block_write(buffer[disk] + offset, fio_size);
-				DisableIO();
-
-				if (sd_image[disk].type == 2)
-				{
-					buffer_lba[disk] = -1;
-				}
+				else break;
 			}
 		}
 	}
