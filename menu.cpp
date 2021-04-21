@@ -192,6 +192,7 @@ static uint32_t menusub_last = 0; //for when we allocate it dynamically and need
 static uint64_t menumask = 0; // Used to determine which rows are selectable...
 static uint32_t menu_timer = 0;
 static uint32_t menu_save_timer = 0;
+static uint32_t load_addr = 0;
 
 extern const char *version;
 
@@ -396,13 +397,14 @@ static void SelectFile(const char* path, const char* pFileExt, unsigned char Opt
 	menustate = MENU_FILE_SELECT1;
 }
 
-void substrcpy(char *d, char *s, char idx)
+int substrcpy(char *d, const char *s, char idx)
 {
 	char p = 0;
+	char *b = d;
 
-	while (*s) {
-		if ((p == idx) && *s && (*s != ','))
-			*d++ = *s;
+	while (*s)
+	{
+		if ((p == idx) && *s && (*s != ',')) *d++ = *s;
 
 		if (*s == ',')
 		{
@@ -414,6 +416,7 @@ void substrcpy(char *d, char *s, char idx)
 	}
 
 	*d = 0;
+	return (int)(d - b);
 }
 
 #define STD_EXIT       "            exit"
@@ -1588,7 +1591,8 @@ void HandleUI(void)
 					}
 					else if (!strcmp(p, "DIP"))
 					{
-						if (arcade_sw()->dip_num)
+						h = page;
+						if (!h && arcade_sw()->dip_num)
 						{
 							dip_submenu = selentry;
 							MenuWrite(entry, " DIP Switches              \x16", menusub == selentry, 0);
@@ -1651,7 +1655,7 @@ void HandleUI(void)
 
 								int len = strlen(s);
 								while (len < 27) s[len++] = ' ';
-								s[27] = 17;
+								s[27] = 0x16;
 								s[28] = 0;
 							}
 
@@ -1772,7 +1776,11 @@ void HandleUI(void)
 							while ((end > s + 1) && (*end == ' ')) end--;
 							*(end + 1) = 0;
 
-							strcat(s, ":");
+							int len = strlen(s);
+							if (len+l > 27) len = 27-l;
+							s[len++] = ':';
+							s[len] = 0;
+
 							l = 28 - l - strlen(s);
 							while (l--) strcat(s, " ");
 
@@ -2005,6 +2013,17 @@ void HandleUI(void)
 						fs_MenuCancel = MENU_GENERIC_MAIN1;
 						strcpy(fs_pFileExt, ext);
 
+						load_addr = 0;
+						if (substrcpy(s, p, 3))
+						{
+							load_addr = strtoul(s, NULL, 16);
+							if (load_addr < 0x20000000 || load_addr >= 0x40000000)
+							{
+								printf("Loading address 0x%X is outside the supported range! Using normal load.\n", load_addr);
+								load_addr = 0;
+							}
+						}
+
 						if (select) SelectFile(Selected_F[ioctl_index & 15], ext, fs_Options, fs_MenuSelect, fs_MenuCancel);
 						else if(recent_init(ioctl_index)) menustate = MENU_RECENT1;
 					}
@@ -2210,7 +2229,7 @@ void HandleUI(void)
 					pcecd_reset();
 				}
 				if(!store_name) user_io_store_filename(selPath);
-				user_io_file_tx(selPath, idx, opensave);
+				user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
 				if (user_io_use_cheats()) cheats_init(selPath, user_io_get_file_crc());
 			}
 
