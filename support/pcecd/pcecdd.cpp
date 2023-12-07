@@ -18,6 +18,7 @@ pcecdd_t pcecdd;
 
 pcecdd_t::pcecdd_t() {
 	latency = 0;
+	audiodelay = 0;
 	loaded = 0;
 	index = 0;
 	lba = 0;
@@ -315,6 +316,7 @@ void pcecdd_t::Unload()
 
 void pcecdd_t::Reset() {
 	latency = 0;
+	audiodelay = 0;
 	index = 0;
 	lba = 0;
 	scanOffset = 0;
@@ -408,6 +410,12 @@ void pcecdd_t::Update() {
 			return;
 		}
 
+		if (this->audiodelay > 0)
+		{
+			this->audiodelay--;
+			return;
+		}
+
 		this->index = GetTrackByLBA(this->lba, &this->toc);
 
 		DISKLED_ON;
@@ -434,7 +442,7 @@ void pcecdd_t::Update() {
 
 		this->CDDAFirst = 0;
 
-		if ((this->lba >= this->CDDAEnd) || this->toc.tracks[this->index].type || this->index >= this->toc.last)
+		if ((this->lba > this->CDDAEnd) || this->toc.tracks[this->index].type || this->index > this->toc.last)
 		{
 			if (this->CDDAMode == PCECD_CDDAMODE_LOOP) {
 				this->lba = this->CDDAStart;
@@ -444,7 +452,7 @@ void pcecdd_t::Update() {
 			}
 
 			if (this->CDDAMode == PCECD_CDDAMODE_INTERRUPT) {
-				PendStatus(MAKE_STATUS(PCECD_STATUS_GOOD, 0));
+				SendStatus(MAKE_STATUS(PCECD_STATUS_GOOD, 0));
 			}
 
 			printf("\x1b[32mPCECD: playback reached the end %d\n\x1b[0m", this->lba);
@@ -464,6 +472,7 @@ void pcecdd_t::CommandExec() {
 	msf_t msf;
 	int new_lba = 0;
 	static uint8_t buf[32];
+	uint32_t temp_latency;
 
 	memset(buf, 0, 32);
 
@@ -477,7 +486,7 @@ void pcecdd_t::CommandExec() {
 			SendStatus(MAKE_STATUS(PCECD_STATUS_GOOD, 0));
 		}
 
-		printf("\x1b[32mPCECD: Command TESTUNIT, state = %u\n\x1b[0m", state);
+		// printf("\x1b[32mPCECD: Command TESTUNIT, state = %u\n\x1b[0m", state);
 		break;
 
 	case PCECD_COMM_REQUESTSENSE:
@@ -507,11 +516,13 @@ void pcecdd_t::CommandExec() {
 		switch (comm[1]) {
 		case 0:
 		default:
-			buf[0] = 2;
+			buf[0] = 4;
 			buf[1] = 0 | 0x80;
 			buf[2] = 1;
 			buf[3] = BCD(this->toc.last);
-			len = 2 + 2;
+			buf[4] = 0;
+			buf[5] = 0;
+			len = 4 + 2;
 			break;
 
 		case 1:
@@ -567,6 +578,12 @@ void pcecdd_t::CommandExec() {
 		{
 			this->latency = 0;
 		}
+		/* Sherlock Holmes streams by fetching 252 sectors at a time, and suffers
+		 * from slight pauses at each seek */
+		else if ((this->lba == new_lba) && (cnt_ == 252))
+		{
+			this->latency = 5;
+		}
 		else if (comm[13] & 0x80) // fast seek (OSD setting)
 		{
 			this->latency = 0;
@@ -574,6 +591,7 @@ void pcecdd_t::CommandExec() {
 		else
 		{
 			this->latency = (int)(get_cd_seek_ms(this->lba, new_lba)/13.33);
+			this->audiodelay = 0;
 		}
 		printf("seek time ticks: %d\n", this->latency);
 
@@ -635,10 +653,19 @@ void pcecdd_t::CommandExec() {
 		if (comm[13] & 0x80) // fast seek (OSD setting)
 		{
 			this->latency = 0;
+			this->audiodelay = 0;
 		}
 		else
 		{
-			this->latency = (int)(get_cd_seek_ms(this->lba, new_lba) / 13.33);
+			temp_latency = (int)(get_cd_seek_ms(this->lba, new_lba) / 13.33);
+			this->audiodelay = (int)(220 / 13.33);
+
+			if (temp_latency > this->audiodelay)
+				this->latency = temp_latency - this->audiodelay;
+			else {
+				this->latency = temp_latency;
+				this->audiodelay = 0;
+			}
 		}
 
 		printf("seek time ticks: %d\n", this->latency);
@@ -681,8 +708,11 @@ void pcecdd_t::CommandExec() {
 		{
 			int track = U8(comm[2]);
 
+			// Note that track (imput from PCE) starts numbering at 1
+			// but toc.tracks starts numbering at 0
+			//
 			if (!track)	track = 1;
-			new_lba = (track >= toc.last) ? this->toc.end : (this->toc.tracks[track - 1].start);
+			new_lba = ((track-1) >= toc.last) ? this->toc.end : (this->toc.tracks[track - 1].start);
 		}
 		break;
 		}
@@ -697,11 +727,11 @@ void pcecdd_t::CommandExec() {
 			this->state = PCECD_STATE_PLAY;
 		}
 
-		printf("\x1b[32mPCECD: Command SAPEP, end = %i, [1] = %02X, [2] = %02X, [9] = %02X\n\x1b[0m", this->CDDAEnd, comm[1], comm[2], comm[9]);
-
 		if (this->CDDAMode != PCECD_CDDAMODE_INTERRUPT) {
 			SendStatus(MAKE_STATUS(PCECD_STATUS_GOOD, 0));
 		}
+
+		printf("\x1b[32mPCECD: Command SAPEP, end = %i, [1] = %02X, [2] = %02X, [9] = %02X\n\x1b[0m", this->CDDAEnd, comm[1], comm[2], comm[9]);
 	}
 		break;
 
@@ -728,7 +758,7 @@ void pcecdd_t::CommandExec() {
 		buf[7] = BCD(msf.s);
 		buf[8] = BCD(msf.f);
 
-		LBAToMSF(this->lba, &msf);
+		LBAToMSF(this->lba+150, &msf);
 		buf[9] = BCD(msf.m);
 		buf[10] = BCD(msf.s);
 		buf[11] = BCD(msf.f);

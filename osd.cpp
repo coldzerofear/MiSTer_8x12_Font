@@ -46,6 +46,7 @@ as rotated copies of the first 128 entries.  -- AMR
 #include "user_io.h"
 #include "hardware.h"
 #include "font.h"
+#include "profiling.h"
 
 #include "support.h"
 
@@ -682,6 +683,7 @@ char* OsdCoreNameGet()
 
 void OsdUpdate()
 {
+	PROFILE_FUNCTION();
 	int n = is_menu() ? 19 : osd_size;
 	for (int i = 0; i < n; i++)
 	{
@@ -692,6 +694,8 @@ void OsdUpdate()
 			DisableOsd();
 			if (is_megacd()) mcd_poll();
 			if (is_pce()) pcecd_poll();
+			if (is_saturn()) saturn_poll();
+			if (is_neogeo_cd()) neocd_poll();
 		}
 	}
 

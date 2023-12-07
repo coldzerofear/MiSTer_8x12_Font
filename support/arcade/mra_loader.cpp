@@ -49,6 +49,8 @@ static char arcade_error_msg[kBigTextSize] = {};
 static char arcade_root[kBigTextSize];
 static char mame_root[kBigTextSize];
 
+static bool is_vertical = false;
+
 static sw_struct switches[2] = {};
 
 static int  nvram_idx  = 0;
@@ -143,7 +145,7 @@ void arcade_sw_load(int n)
 {
 	sw_struct *sw = arcade_sw(n);
 	static char path[1024];
-	strcpy(path, (n) ? CONFIG_DIR"/cheats/" : CONFIG_DIR"/dips/");
+	strcpy(path, (n) ? "cheats/" : "dips/");
 	strcat(path, sw->name);
 	FileLoadConfig(path, &sw->dip_cur, sizeof(sw->dip_cur));
 }
@@ -179,7 +181,7 @@ static const char *get_arcade_root(int rbf)
 	static char path[kBigTextSize];
 
 	if (!rbf) strcpy(path, mame_root);
-	else sprintf(path, "%s/cores", arcade_root);
+	else snprintf(path, sizeof(path), "%s/cores", arcade_root);
 
 	return path;
 }
@@ -340,7 +342,7 @@ static void rom_finish(int send, uint32_t address, int index)
 				{
 					ProgressMessage("Sending", str, len - romlen[0], len);
 
-					uint16_t chunk = (romlen[0] > 4096) ? 4096 : romlen[0];
+					uint32_t chunk = (romlen[0] > 4096) ? 4096 : romlen[0];
 					user_io_file_tx_data(data, chunk);
 
 					romlen[0] -= chunk;
@@ -777,30 +779,33 @@ static int xml_send_rom(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 				}
 
 				int checksumsame = !strlen(arc_info->zipname) || !strcasecmp(arc_info->md5, hex);
-				if (checksumsame == 0)
-				{
-					printf("\n*** Checksum mismatch\n");
-					printf("    md5-orig = %s\n", arc_info->md5);
-					printf("    md5-calc = %s\n\n", hex);
-				}
+				int no_checksum = !strcasecmp(arc_info->md5, "none") || !strlen(arc_info->md5);
 
-				checksumsame |= !strcasecmp(arc_info->md5, "none");
-				if (checksumsame == 0)
+				if (!no_checksum)
 				{
-					if (!strlen(arc_info->error_msg))
-						snprintf(arc_info->error_msg, kBigTextSize, "md5 mismatch for rom %d", arc_info->romindex);
-				}
-				else
-				{
-					// this code sets the validerom0 and clears the message
-					// if a rom with index 0 has a correct md5. It supresses
-					// sending any further rom0 messages
-					if (arc_info->romindex == 0)
+					if (checksumsame == 0)
 					{
-						arc_info->validrom0 = 1;
-						arc_info->error_msg[0] = 0;
+						printf("\n*** Checksum mismatch\n");
+						printf("    md5-orig = %s\n", arc_info->md5);
+						printf("    md5-calc = %s\n\n", hex);
+
+						if (!strlen(arc_info->error_msg))
+							snprintf(arc_info->error_msg, kBigTextSize, "md5 mismatch for rom %d", arc_info->romindex);
+					}
+					else
+					{
+						// this code sets the validerom0 and clears the message
+						// if a rom with index 0 has a correct md5. It supresses
+						// sending any further rom0 messages
+						if (arc_info->romindex == 0)
+						{
+							arc_info->validrom0 = 1;
+							arc_info->error_msg[0] = 0;
+						}
 					}
 				}
+
+				checksumsame |= no_checksum;
 
 				rom_finish(checksumsame, arc_info->address, arc_info->romindex);
 			}
@@ -875,7 +880,7 @@ static int xml_send_rom(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 				if (result == 0)
 				{
 					printf("%s does not exist\n", arc_info->partname);
-					snprintf(arc_info->error_msg, kBigTextSize, "%s\nFile Not Found", arc_info->partname);
+					snprintf(arc_info->error_msg, kBigTextSize, "%s\n%s not found", fname, arc_info->partname);
 				}
 			}
 			else // we have binary data?
@@ -985,36 +990,49 @@ static int xml_scan_rbf(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 	return true;
 }
 
-static int xml_read_setname(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const int n, SAX_Data* sd)
+static int xml_read_pre_parse(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const int n, SAX_Data* sd)
 {
 	(void)(sd);
-	static int insetname = 0;
+	static bool insetname = false;
+	static bool inrotation = false;
+
+	static bool foundsetname = false;
+	static bool foundrotation = false;
 
 	switch (evt)
 	{
 	case XML_EVENT_START_DOC:
-		insetname = 0;
+		insetname = false;
+		inrotation = false;
+		foundsetname = false;
+		foundrotation = false;
 		break;
 
 	case XML_EVENT_START_NODE:
-
-		/* on the beginning of a rom tag, we need to reset the state*/
 		if (!strcasecmp(node->tag, "setname"))
 		{
-			insetname = 1;
+			insetname = true;
+			foundsetname = true;
+		}
+		else if (!strcasecmp(node->tag, "rotation"))
+		{
+			inrotation = true;
+			foundrotation = true;
 		}
 		break;
 
 	case XML_EVENT_TEXT:
 		if(insetname) user_io_name_override(text);
+		if(inrotation)
+		{
+			is_vertical = strncasecmp(text, "vertical", 8) == 0;
+		}
 		break;
 
 	case XML_EVENT_END_NODE:
-		if (!strcasecmp(node->tag, "setname"))
-		{
-			insetname = 0;
-			return false;
-		}
+		insetname = false;
+		inrotation = false;
+		if (foundrotation && foundsetname) return false;
 		break;
 
 	case XML_EVENT_ERROR:
@@ -1075,26 +1093,40 @@ int arcade_send_rom(const char *xml)
 	return 0;
 }
 
-void arcade_override_name(const char *xml)
+void arcade_pre_parse(const char *xml)
 {
 	SAX_Callbacks sax;
 	SAX_Callbacks_init(&sax);
 
-	sax.all_event = xml_read_setname;
+	sax.all_event = xml_read_pre_parse;
 	XMLDoc_parse_file_SAX(xml, &sax, NULL);
+}
+
+bool arcade_is_vertical()
+{
+	return is_vertical;
 }
 
 void arcade_check_error()
 {
 	if (arcade_error_msg[0] != 0) {
 		printf("ERROR: [%s]\n", arcade_error_msg);
-		Info(arcade_error_msg, 1000 * 30);
+		Info(arcade_error_msg, 1000 * 5);
 		arcade_error_msg[0] = 0;
-		sleep(3);
+		sleep(5+3);
 	}
 }
 
-static const char *get_rbf(const char *xml)
+static const char *get_rbf_path(const char *rbfname)
+{
+	static char path[kBigTextSize];
+	snprintf(path, sizeof(path), "%s/%s", getRootDir(), rbfname);
+	char *p = strrchr(path, '/');
+	*p = 0;
+	return path;
+}
+
+static const char *get_rbf(const char *xml, int arcade)
 {
 	static char rbfname[kBigTextSize];
 
@@ -1108,9 +1140,23 @@ static const char *get_rbf(const char *xml)
 	/* once we have the rbfname fragment from the MRA xml file
 	 * search the arcade folder for the match */
 	struct dirent *entry;
-	DIR *dir;
+	DIR *dir = 0;
 
-	const char *dirname = get_arcade_root(1);
+	const char *dirname;
+	const char *filename;
+	if (arcade)
+	{
+		dirname = get_arcade_root(1);
+		filename = rbfname;
+	}
+	else
+	{
+		dirname = get_rbf_path(rbfname);
+		filename = strrchr(rbfname, '/');
+		if (filename) filename++;
+		else filename = rbfname;
+	}
+
 	if (!(dir = opendir(dirname)))
 	{
 		printf("%s directory not found\n", dirname);
@@ -1127,17 +1173,20 @@ static const char *get_rbf(const char *xml)
 			static char newstring[kBigTextSize];
 			//printf("entry name: %s\n",entry->d_name);
 
-			snprintf(newstring, kBigTextSize, "Arcade-%s", rbfname);
-			len = strlen(newstring);
-			if (!strncasecmp(newstring, entry->d_name, len) && (entry->d_name[len] == '.' || entry->d_name[len] == '_'))
+			if (arcade)
 			{
-				if (!lastfound[0] || strcmp(lastfound, entry->d_name) < 0)
+				snprintf(newstring, kBigTextSize, "Arcade-%s", filename);
+				len = strlen(newstring);
+				if (!strncasecmp(newstring, entry->d_name, len) && (entry->d_name[len] == '.' || entry->d_name[len] == '_'))
 				{
-					strcpy(lastfound, entry->d_name);
+					if (!lastfound[0] || strcmp(lastfound, entry->d_name) < 0)
+					{
+						strcpy(lastfound, entry->d_name);
+					}
 				}
 			}
 
-			snprintf(newstring, kBigTextSize, "%s", rbfname);
+			snprintf(newstring, kBigTextSize, "%s", filename);
 			len = strlen(newstring);
 			if (!strncasecmp(newstring, entry->d_name, len) && (entry->d_name[len] == '.' || entry->d_name[len] == '_'))
 			{
@@ -1149,27 +1198,30 @@ static const char *get_rbf(const char *xml)
 		}
 	}
 
-	if (lastfound[0]) sprintf(rbfname, "%s/%s", dirname, lastfound);
+	if (lastfound[0]) snprintf(rbfname, sizeof(rbfname), "%s/%s", dirname, lastfound);
 	closedir(dir);
 
 	return lastfound[0] ? rbfname : NULL;
 }
 
-int arcade_load(const char *xml)
+int xml_load(const char *xml)
 {
 	MenuHide();
 	static char path[kBigTextSize];
 
 	if(xml[0] == '/') strcpy(path, xml);
-	else sprintf(path, "%s/%s", getRootDir(), xml);
+	else snprintf(path, sizeof(path), "%s/%s", getRootDir(), xml);
 
-	set_arcade_root(path);
-	printf("arcade_load [%s]\n", path);
-	const char *rbf = get_rbf(path);
+	int len = strlen(xml);
+	int is_arcade = (len > 4) && !strcasecmp(xml + len - 4, ".mra");
+
+	if (is_arcade) set_arcade_root(path);
+	printf("xml_load [%s]\n", path);
+	const char *rbf = get_rbf(path, is_arcade);
 
 	if (rbf)
 	{
-		printf("MRA: %s, RBF: %s\n", path, rbf);
+		printf("XML: %s, RBF: %s\n", path, rbf);
 		fpga_load_rbf(rbf, NULL, path);
 	}
 	else
@@ -1178,4 +1230,128 @@ int arcade_load(const char *xml)
 	}
 
 	return 0;
+}
+
+static mgl_struct mgl = {};
+
+static int scan_mgl(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const int n, SAX_Data* sd)
+{
+	(void)sd;
+
+	static int inside_mgl = 0;
+	switch (evt)
+	{
+	case XML_EVENT_START_DOC:
+		inside_mgl = 0;
+		break;
+
+	case XML_EVENT_START_NODE:
+		if (!strcasecmp(node->tag, "mistergamedescription")) inside_mgl = 1;
+		else if (inside_mgl && mgl.count < (int)(sizeof(mgl.item) / sizeof(mgl.item[0])))
+		{
+			if (!strcasecmp(node->tag, "file"))
+			{
+				mgl.item[mgl.count].action = MGL_ACTION_LOAD;
+
+				for (int i = 0; i < node->n_attributes; i++)
+				{
+					if (!strcasecmp(node->attributes[i].name, "delay"))
+					{
+						mgl.item[mgl.count].delay = strtoul(node->attributes[i].value, NULL, 0);
+						mgl.item[mgl.count].valid |= 0x1;
+					}
+					else if (!strcasecmp(node->attributes[i].name, "type"))
+					{
+						if (!strcasecmp(node->attributes[i].value, "s"))
+						{
+							mgl.item[mgl.count].type = 'S';
+							mgl.item[mgl.count].valid |= 0x2;
+						}
+						else if (!strcasecmp(node->attributes[i].value, "f"))
+						{
+							mgl.item[mgl.count].type = 'F';
+							mgl.item[mgl.count].valid |= 0x2;
+						}
+					}
+					else if (!strcasecmp(node->attributes[i].name, "index"))
+					{
+						mgl.item[mgl.count].index = strtoul(node->attributes[i].value, NULL, 0);
+						mgl.item[mgl.count].valid |= 0x4;
+					}
+					else if (!strcasecmp(node->attributes[i].name, "path"))
+					{
+						snprintf(mgl.item[mgl.count].path, sizeof(mgl.item[mgl.count].path), "%s", node->attributes[i].value);
+						mgl.item[mgl.count].valid |= 0x8;
+					}
+				}
+
+				printf("  action=load\n  delay=%d\n  type=%c\n  index=%d\n  path=%s\n  valid=%X\n\n", mgl.item[mgl.count].delay, mgl.item[mgl.count].type, mgl.item[mgl.count].index, mgl.item[mgl.count].path, mgl.item[mgl.count].valid);
+
+				if (mgl.item[mgl.count].valid == 0xF)
+				{
+					mgl.item[mgl.count].valid = 1;
+					mgl.count++;
+				}
+				else
+				{
+					mgl.item[mgl.count].valid = 0;
+				}
+			}
+			else if (!strcasecmp(node->tag, "reset"))
+			{
+				mgl.item[mgl.count].action = MGL_ACTION_RESET;
+
+				for (int i = 0; i < node->n_attributes; i++)
+				{
+					if (!strcasecmp(node->attributes[i].name, "delay"))
+					{
+						mgl.item[mgl.count].delay = strtoul(node->attributes[i].value, NULL, 0);
+						mgl.item[mgl.count].valid = 1;
+					}
+					else if (!strcasecmp(node->attributes[i].name, "hold"))
+					{
+						mgl.item[mgl.count].hold = strtoul(node->attributes[i].value, NULL, 0);
+					}
+				}
+
+				printf("  action=reset\n  delay=%d\n  hold=%d\n\n", mgl.item[mgl.count].delay, mgl.item[mgl.count].hold);
+				if (mgl.item[mgl.count].valid) mgl.count++;
+			}
+		}
+		break;
+
+	case XML_EVENT_TEXT:
+		break;
+
+	case XML_EVENT_END_NODE:
+		if (!strcasecmp(node->tag, "mistergamedescription")) inside_mgl = 0;
+		break;
+
+	case XML_EVENT_ERROR:
+		printf("XML parse: %s: ERROR %d\n", text, n);
+		break;
+	default:
+		break;
+	}
+
+	return true;
+}
+
+mgl_struct* mgl_parse(const char *xml)
+{
+	memset(&mgl, 0, sizeof(mgl));
+
+	printf("MGL %s\n", xml);
+
+	SAX_Callbacks sax;
+	SAX_Callbacks_init(&sax);
+	sax.all_event = scan_mgl;
+	XMLDoc_parse_file_SAX(xml, &sax, 0);
+
+	return &mgl;
+}
+
+mgl_struct* mgl_get()
+{
+	return &mgl;
 }
