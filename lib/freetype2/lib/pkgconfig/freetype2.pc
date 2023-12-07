@@ -1,0 +1,14 @@
+prefix=/mnt/d/tmp/freetype-2.10.4/lib-arm-linux-gnueabihf
+exec_prefix=/mnt/d/tmp/freetype-2.10.4/lib-arm-linux-gnueabihf
+libdir=/mnt/d/tmp/freetype-2.10.4/lib-arm-linux-gnueabihf/lib
+includedir=/mnt/d/tmp/freetype-2.10.4/lib-arm-linux-gnueabihf/include
+
+Name: FreeType 2
+URL: https://freetype.org
+Description: A free, high-quality, and portable font engine.
+Version: 23.4.17
+Requires:
+Requires.private: 
+Libs: -L${libdir} -lfreetype
+Libs.private: 
+Cflags: -I${includedir}/freetype2

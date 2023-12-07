@@ -32,6 +32,7 @@
 #include "cheats.h"
 #include "video.h"
 #include "audio.h"
+#include "font.h"
 #include "shmem.h"
 
 #include "support.h"
