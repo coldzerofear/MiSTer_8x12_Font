@@ -1692,7 +1692,12 @@ void HandleUI(void)
 		int entry = 0;
 		while(1)
 		{
-			if (!menusub) firstmenu = 0;
+			if (!menusub) 
+			{
+				OsdSetSize(16);
+				OsdUpdate();
+				firstmenu = 0;
+			}
 
 			adjvisible = 0;
 			entry = 0;
@@ -4973,6 +4978,9 @@ void HandleUI(void)
 		helptext_idx = (fs_Options & SCANO_UMOUNT) ? HELPTEXT_EJECT : (fs_Options & SCANO_CLEAR) ? HELPTEXT_CLEAR : 0;
 		OsdSetTitle((fs_Options & SCANO_CORES) ? "Cores" : "Select", 0);
 		PrintDirectory(hold_cnt<2);
+		OsdSetSize(16);
+		OsdUpdate();
+		OsdSetSize(8);
 		menustate = MENU_FILE_SELECT2;
 		if (cfg.log_file_entry && flist_nDirEntries())
 		{
@@ -6332,6 +6340,8 @@ void HandleUI(void)
 			break;
 		}
 
+		OsdSetSize(16);
+		OsdUpdate();
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
