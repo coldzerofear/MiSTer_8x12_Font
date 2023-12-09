@@ -2602,7 +2602,8 @@ void HandleUI(void)
 				if (!adjvisible) break;
 				firstmenu += adjvisible;
 			}
-
+			OsdSetSize(8);
+			OsdSetSize(16);
 		}
 		break;
 
@@ -7057,8 +7058,8 @@ void ScrollLongName(void)
 void PrintDirectory(int expand)
 {
 	char s[256];
+	OsdSetSize(16);
 	ScrollReset();
-
 	if (!cfg.browse_expand) expand = 0;
 
 	if (expand)
@@ -7077,7 +7078,7 @@ void PrintDirectory(int expand)
 	int k = flist_iFirstEntry();
 	char *name;
 
-	while(i < OsdGetSize())
+	for (int j = 0; j < 8; j++)
 	{
 		char leftchar = 0;
 		memset(s, ' ', 256); // clear line buffer
@@ -7168,8 +7169,12 @@ void PrintDirectory(int expand)
 			}
 		}
 
-		int sel = (i == (flist_iSelectedEntry() - flist_iFirstEntry()));
-		OsdWriteOffset(i, s, sel, 0, 0, leftchar);
+		int sel = (i/2 == (flist_iSelectedEntry() - flist_iFirstEntry()));
+		// write upper part of text
+		OsdWriteOffset(i, s, sel, 0, 4, leftchar, 0, 32, 0, false);
+		i++;
+		// write lower part of text
+		OsdWriteOffset(i, s, sel, 0, 0, leftchar, 0, 32, 0, true);
 		i++;
 
 		if (sel && len2_byte)
@@ -7182,6 +7187,7 @@ void PrintDirectory(int expand)
 
 		k++;
 	}
+	OsdSetSize(8);
 }
 
 static void set_text(const char *message, unsigned char code)

@@ -13,7 +13,7 @@ FTC_SBitCache ftc_bitcache;
 FTC_SBit ftc_sbit;
 FTC_ImageTypeRec ftc_imagetype;
 
-unsigned char rendered_font[8];
+unsigned char rendered_font[12];
 
 int utf8_charlen(unsigned char c)
 {
@@ -89,7 +89,7 @@ FT_ULong utf8_to_utf32(const unsigned char *c)
     return utf32;
 }
 
-void freetype_render(const unsigned char *c)
+void freetype_render(const unsigned char *c, bool is_lower_part)
 {
     FT_Error error;
     FT_ULong c_utf32;
@@ -108,11 +108,23 @@ void freetype_render(const unsigned char *c)
 
     unsigned char byte;
     int shift_x;
-    int shift_y = 5 - ftc_sbit->top + ftc_sbit->height;
+    int shift_y = 5 - ftc_sbit->top + ftc_sbit->height + 2;
 
+  
     memset(rendered_font, 0, 8);
+ 
+    int height_offset = 0;
+    int skip_row = 4;
+    if (!is_lower_part)
+    {
+        skip_row = 0;
+        height_offset = 5;
+        shift_y = 5 - ftc_sbit->top + ftc_sbit->height + 1;
+    }
+    
 
-    for (int row = ftc_sbit->height - 1; row >= 0; row--)
+    
+    for (int row = ftc_sbit->height - height_offset; row >= 0; row--)
     {
         byte = ftc_sbit->buffer[ftc_sbit->pitch * row];
         shift_x = 7;
@@ -148,7 +160,7 @@ void freetype_init()
     FT_Error error;
 
     error = FT_Init_FreeType(&library);
-    error = FTC_Manager_New(library, 0, 0, 1000000, FtcFaceRequester, (FT_Pointer)"/media/fat/font/misaki_gothic.ttf", &ftc_manager);
+    error = FTC_Manager_New(library, 0, 0, 1000000, FtcFaceRequester, (FT_Pointer)"/media/fat/font/MZPXorig.ttf", &ftc_manager);
     if (error)
         printf("FREETYPE2: Error at FTC_Manager_New.\n");
 
@@ -166,8 +178,8 @@ void freetype_init()
 
 
     ftc_imagetype.face_id = 0;
-    ftc_imagetype.width = 8;
-    ftc_imagetype.height = 8;
+    ftc_imagetype.width = 12;
+    ftc_imagetype.height = 12;
     ftc_imagetype.flags = FT_LOAD_MONOCHROME | FT_LOAD_TARGET_MONO;
 
     printf("FREETYPE2: Initialized.\n");
