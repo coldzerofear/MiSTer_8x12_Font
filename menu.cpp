@@ -7170,10 +7170,11 @@ void PrintDirectory(int expand)
 		}
 
 		int sel = (i/2 == (flist_iSelectedEntry() - flist_iFirstEntry()));
-		// write upper part of text
+		// write upper part of text with offset 4 
+		// (skip 4 pixel verticaly, so 4x8 with top blank)
 		OsdWriteOffset(i, s, sel, 0, 4, leftchar, 0, 32, 0, false);
 		i++;
-		// write lower part of text
+		// write lower part of text (show full 8x8 block)
 		OsdWriteOffset(i, s, sel, 0, 0, leftchar, 0, 32, 0, true);
 		i++;
 

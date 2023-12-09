@@ -114,10 +114,8 @@ void freetype_render(const unsigned char *c, bool is_lower_part)
     memset(rendered_font, 0, 8);
  
     int height_offset = 0;
-    int skip_row = 4;
     if (!is_lower_part)
     {
-        skip_row = 0;
         height_offset = 5;
         shift_y = 5 - ftc_sbit->top + ftc_sbit->height + 1;
     }
