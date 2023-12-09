@@ -245,7 +245,7 @@ static void draw_title(const unsigned char *p)
 }
 
 // write a null-terminated string <s> to the OSD buffer starting at line <n>
-void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsigned char stipple, char offset, char leftchar, char usebg, int maxinv, int mininv)
+void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsigned char stipple, char offset, char leftchar, char usebg, int maxinv, int mininv, bool is_lower_part)
 {
 	// printf("OsdWriteOffset(%d)\n", n);
 
@@ -355,12 +355,15 @@ void OsdWriteOffset(unsigned char n, const char *s, unsigned char invert, unsign
 				if (len_utf8 == 1)
 				{
 					// ASCII and MiSTer special bitmap character
-					p = &charfont[b][0];
+					if (is_lower_part)
+						p = &charfont[b][0];
+					else // Show nothing on upper section
+						p = &charfont[0x00][0];
 				}
 				else
 				{
 					// UTF-8 multibyte character
-					freetype_render((unsigned char *)s);
+					freetype_render((unsigned char *)s, is_lower_part);
 					p = &rendered_font[0];
 				}
 				for (c = 0; c<8; c++) {

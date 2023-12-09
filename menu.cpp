@@ -1692,7 +1692,12 @@ void HandleUI(void)
 		int entry = 0;
 		while(1)
 		{
-			if (!menusub) firstmenu = 0;
+			if (!menusub) 
+			{
+				OsdSetSize(16);
+				OsdUpdate();
+				firstmenu = 0;
+			}
 
 			adjvisible = 0;
 			entry = 0;
@@ -2602,7 +2607,6 @@ void HandleUI(void)
 				if (!adjvisible) break;
 				firstmenu += adjvisible;
 			}
-
 		}
 		break;
 
@@ -4972,6 +4976,9 @@ void HandleUI(void)
 		helptext_idx = (fs_Options & SCANO_UMOUNT) ? HELPTEXT_EJECT : (fs_Options & SCANO_CLEAR) ? HELPTEXT_CLEAR : 0;
 		OsdSetTitle((fs_Options & SCANO_CORES) ? "Cores" : "Select", 0);
 		PrintDirectory(hold_cnt<2);
+		OsdSetSize(16);
+		OsdUpdate();
+		OsdSetSize(8);
 		menustate = MENU_FILE_SELECT2;
 		if (cfg.log_file_entry && flist_nDirEntries())
 		{
@@ -6332,6 +6339,8 @@ void HandleUI(void)
 		}
 
 		OsdSetSize(16);
+		OsdUpdate();
+		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
 
@@ -7057,8 +7066,8 @@ void ScrollLongName(void)
 void PrintDirectory(int expand)
 {
 	char s[256];
+	OsdSetSize(16);
 	ScrollReset();
-
 	if (!cfg.browse_expand) expand = 0;
 
 	if (expand)
@@ -7077,7 +7086,7 @@ void PrintDirectory(int expand)
 	int k = flist_iFirstEntry();
 	char *name;
 
-	while(i < OsdGetSize())
+	for (int j = 0; j < 8; j++)
 	{
 		char leftchar = 0;
 		memset(s, ' ', 256); // clear line buffer
@@ -7168,8 +7177,13 @@ void PrintDirectory(int expand)
 			}
 		}
 
-		int sel = (i == (flist_iSelectedEntry() - flist_iFirstEntry()));
-		OsdWriteOffset(i, s, sel, 0, 0, leftchar);
+		int sel = (i/2 == (flist_iSelectedEntry() - flist_iFirstEntry()));
+		// write upper part of text with offset 4 
+		// (skip 4 pixel verticaly, so 4x8 with top blank)
+		OsdWriteOffset(i, s, sel, 0, 4, leftchar, 0, 32, 0, false);
+		i++;
+		// write lower part of text (show full 8x8 block)
+		OsdWriteOffset(i, s, sel, 0, 0, leftchar, 0, 32, 0, true);
 		i++;
 
 		if (sel && len2_byte)
@@ -7182,6 +7196,7 @@ void PrintDirectory(int expand)
 
 		k++;
 	}
+	OsdSetSize(8);
 }
 
 static void set_text(const char *message, unsigned char code)
