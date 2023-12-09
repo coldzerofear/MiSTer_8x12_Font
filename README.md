@@ -1,6 +1,6 @@
 # Main_MiSTer with 8x12 font support
 Font used from: https://github.com/DWNfonts/MuzaiPixel
--MZPXorig.ttf
+- MZPXorig.ttf is required to be under sdcard/font/
 MiSTer OSD directory view always show item in 2 rows.
 -Original ASCII font will show on the lower row.
 -UTF-8 2-byte Characters will show across both row.
