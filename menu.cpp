@@ -2607,8 +2607,6 @@ void HandleUI(void)
 				if (!adjvisible) break;
 				firstmenu += adjvisible;
 			}
-			OsdSetSize(8);
-			OsdSetSize(16);
 		}
 		break;
 
