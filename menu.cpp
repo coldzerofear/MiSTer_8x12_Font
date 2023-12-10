@@ -7228,7 +7228,10 @@ static void set_text(const char *message, unsigned char code)
 		if ((len == 29) || (*message == '\n') || !*message)
 		{
 			s[i] = 0;
-			OsdWrite(l++, s, 0, 0);
+			
+			// OsdWrite(l++, s, 0, 0);
+			OsdWriteOffset(l++, s, 0, 0, 4, 0, 0, 32, 0, false);
+			OsdWriteOffset(l++, s, 0, 0, 0, 0, 0, 32, 0, true);
 			i = 0;  // start next line
 			len = 0;
 			cnt = 0;
