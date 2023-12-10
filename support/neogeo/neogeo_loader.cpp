@@ -569,15 +569,17 @@ char *neogeo_get_altname(char *path, char *name, char *altname)
 	char *p = strrchr(name, '.');
 	if (p && !strcasecmp(p, ".neo"))
 	{
-		static NeoFile hdr;
+		// static NeoFile hdr;
 
-		fileTYPE f = {};
-		if (FileOpen(&f, full_path))
-		{
-			int res = FileReadAdv(&f, &hdr, sizeof(hdr));
-			FileClose(&f);
-			if(res) return (char*)hdr.Name;
-		}
+		// fileTYPE f = {};
+		// if (FileOpen(&f, full_path))
+		// {
+		// 	int res = FileReadAdv(&f, &hdr, sizeof(hdr));
+		// 	FileClose(&f);
+		// 	if(res) return (char*)hdr.Name;
+		// }
+		
+		// Show .neo file name instead
 		return NULL;
 	}
 

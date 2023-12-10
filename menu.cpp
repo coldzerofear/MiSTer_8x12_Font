@@ -7190,7 +7190,10 @@ void PrintDirectory(int expand)
 		{
 			len_byte = strlen(flist_DirItem(k)->altname);
 			strcpy(s+1, name + len_byte - len2_byte);
-			OsdWriteOffset(i, s, sel, 0, 0, leftchar);
+			OsdWriteOffset(i, s, sel, 0, 4, leftchar, 0, 32, 0, false);
+			i++;
+			// write lower part of text (show full 8x8 block)
+			OsdWriteOffset(i, s, sel, 0, 0, leftchar, 0, 32, 0, true);
 			i++;
 		}
 
@@ -7225,7 +7228,10 @@ static void set_text(const char *message, unsigned char code)
 		if ((len == 29) || (*message == '\n') || !*message)
 		{
 			s[i] = 0;
-			OsdWrite(l++, s, 0, 0);
+			
+			// OsdWrite(l++, s, 0, 0);
+			OsdWriteOffset(l++, s, 0, 0, 4, 0, 0, 32, 0, false);
+			OsdWriteOffset(l++, s, 0, 0, 0, 0, 0, 32, 0, true);
 			i = 0;  // start next line
 			len = 0;
 			cnt = 0;
