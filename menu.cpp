@@ -5052,7 +5052,7 @@ void HandleUI(void)
 
 		if (flist_nDirEntries())
 		{
-			if (!helpstate || ((flist_iSelectedEntry() - flist_iFirstEntry() + 1) < OsdGetSize())) ScrollLongName(); // scrolls file name if longer than display line
+			// if (!helpstate || ((flist_iSelectedEntry() - flist_iFirstEntry() + 1) < OsdGetSize())) ScrollLongName(); // scrolls file name if longer than display line
 
 			if (c == KEY_HOME || c == KEY_TAB)
 			{
