@@ -157,12 +157,13 @@ void OsdSetTitle(const char *s, int a)
 	// Compose the title, condensing character gaps
 	arrow = a;
 	int zeros = 0;
+	uint fixedHeight = 128;
 	uint i = 0, j = 0;
 	uint outp = 0;
 	while (1)
 	{
 		int c = s[i++];
-		if (c && (outp<OSDHEIGHT-8))
+		if (c && (outp<fixedHeight-8))
 		{
 			unsigned char *p = &charfont[c][0];
 			for (j = 0; j<8; ++j)
@@ -183,19 +184,19 @@ void OsdSetTitle(const char *s, int a)
 		}
 		else break;
 	}
-	for (i = outp; i<OSDHEIGHT; i++)
+	for (i = outp; i<fixedHeight; i++)
 	{
 		titlebuffer[i] = 0;
 	}
 
 	// Now centre it:
-	uint c = (OSDHEIGHT - 1 - outp) / 2;
+	uint c = (fixedHeight - 1 - outp) / 2;
 	memmove(titlebuffer + c, titlebuffer, outp);
 
 	for (i = 0; i<c; ++i) titlebuffer[i] = 0;
 
 	// Finally rotate it.
-	for (i = 0; i<OSDHEIGHT; i += 8)
+	for (i = 0; i<fixedHeight; i += 8)
 	{
 		unsigned char tmp[8];
 		rotatechar(&titlebuffer[i], tmp);
