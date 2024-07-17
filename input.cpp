@@ -1643,8 +1643,8 @@ static int keyrah_trans(int key, int press)
 static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int dev);
 
 static int kbd_toggle = 0;
-static uint32_t joy[NUMPLAYERS] = {};
-static uint32_t autofire[NUMPLAYERS] = {};
+static uint64_t joy[NUMPLAYERS] = {};		// 0-31 primary mappings, 32-64 alternate
+static uint64_t autofire[NUMPLAYERS] = {};	// 0-31 primary mappings, 32-64 alternate
 static uint32_t autofirecodes[NUMPLAYERS][BTN_NUM] = {};
 static int af_delay[NUMPLAYERS] = {};
 
@@ -1840,12 +1840,12 @@ static void joy_apply_deadzone(int* x, int* y, const devInput* dev, const int st
 }
 
 static uint32_t osdbtn = 0;
-static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int bnum, int dont_save = 0)
+static void joy_digital(int jnum, uint64_t mask, uint32_t code, char press, int bnum, int dont_save = 0)
 {
 	static char str[128];
-	static uint32_t lastcode[NUMPLAYERS], lastmask[NUMPLAYERS];
+	static uint32_t lastcode[NUMPLAYERS];
+	static uint64_t lastmask[NUMPLAYERS];
 	int num = jnum - 1;
-
 	if (num < NUMPLAYERS)
 	{
 		if (jnum)
@@ -1886,11 +1886,12 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 						}
 
 						if (!found && zero >= 0) autofirecodes[num][zero] = lastcode[num];
+						
 						autofire[num] = !found ? autofire[num] | lastmask[num] : autofire[num] & ~lastmask[num];
 
 						if (hasAPI1_5())
 						{
-							if (!found) sprintf(str, "Auto fire: %dms", af_delay[num] * 2);
+							if (!found) sprintf(str, "Auto fire: %dms (%uhz)", af_delay[num] * 2, 1000 / (af_delay[num] * 2));
 							else sprintf(str, "Auto fire: OFF");
 							Info(str);
 						}
@@ -1916,12 +1917,12 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 
 						if (hasAPI1_5())
 						{
-							sprintf(str, "Auto fire period: %dms", af_delay[num] * 2);
+							sprintf(str, "Auto fire period: %dms (%uhz)", af_delay[num] * 2, 1000 / (af_delay[num] * 2));
 							Info(str);
 						}
 						else
 						{
-							sprintf(str, "\n\n       Auto fire period\n            %dms", af_delay[num] * 2);
+							sprintf(str, "\n\n       Auto fire period\n            %dms(%uhz)", af_delay[num] * 2, 1000 / (af_delay[num] * 2));
 							InfoMessage(str);
 						}
 
@@ -2127,6 +2128,7 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 		{
 			if (press) joy[num] |= mask;
 			else joy[num] &= ~mask;
+			
 			//user_io_digital_joystick(num, joy[num]);
 
 			if (code)
@@ -2380,6 +2382,82 @@ static void restore_player(int dev)
 	}
 
 	update_num_hw(dev, input[dev].num);
+}
+
+// Analog joystick dead zone
+static void setup_deadzone(struct input_event* ev, int dev)
+{
+	// Lightgun/wheel has no dead zone
+	if (ev->type != EV_ABS || (ev->code <= 1 && (input[dev].lightgun || input[dev].quirk == QUIRK_WHEEL)))
+	{
+		input[dev].deadzone = 0U;
+	}
+	// Dual Shock 3/4
+	else if (input[dev].quirk == QUIRK_DS3 || input[dev].quirk == QUIRK_DS4)
+	{
+		input[dev].deadzone = 10U;
+	}
+	// Default dead zone
+	else
+	{
+		input[dev].deadzone = 2U;
+	}
+
+	char cfg_format[32];
+	char cfg_uid[sizeof(*cfg.controller_deadzone)];
+
+	snprintf(cfg_format, sizeof(cfg_format), "%%%u[^ \t,]%%*[ \t,]%%u%%n", (size_t)(sizeof(cfg_uid) - 1));
+
+	const char* dev_uid = get_unique_mapping(dev, 1);
+
+	for (size_t i = 0; i < sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone); i++)
+	{
+		const char* cfg_line = cfg.controller_deadzone[i];
+		if (!cfg_line || !strlen(cfg_line)) break;
+
+		uint32_t cfg_vidpid, cfg_deadzone;
+		size_t scan_pos;
+		char vp;
+
+		if ((sscanf(cfg_line, cfg_format, cfg_uid, &cfg_deadzone, &scan_pos) < 2) ||
+			(scan_pos != strlen(cfg_line))) continue;
+
+		if ((
+			sscanf(cfg_uid, "0%*[Xx]%08x%n", &cfg_vidpid, &scan_pos) ||
+			sscanf(cfg_uid, "%08x%n", &cfg_vidpid, &scan_pos)) &&
+			(scan_pos == strlen(cfg_uid)))
+		{
+			const uint32_t vidpid = (input[dev].vid << 16) | input[dev].pid;
+			if (vidpid != cfg_vidpid) continue;
+		}
+		else if ((
+			(sscanf(cfg_uid, "%[VvPp]%*[Ii]%*[Dd]:0%*[Xx]%04x%n", &vp, &cfg_vidpid, &scan_pos) == 2) ||
+			(sscanf(cfg_uid, "%[VvPp]%*[Ii]%*[Dd]:%04x%n", &vp, &cfg_vidpid, &scan_pos) == 2)) &&
+			(scan_pos == strlen(cfg_uid)))
+		{
+			if (vp == 'V' || vp == 'v')
+			{
+				if (input[dev].vid != cfg_vidpid) continue;
+			}
+			else
+			{
+				if (input[dev].pid != cfg_vidpid) continue;
+			}
+		}
+		else if (
+			!strcasestr(input[dev].id, cfg_uid) &&
+			!strcasestr(input[dev].sysfs, cfg_uid) &&
+			!strcasestr(dev_uid, cfg_uid))
+		{
+			continue;
+		}
+
+		if (cfg_deadzone > 64) cfg_deadzone = 64;
+
+		printf("Analog device %s was given a dead zone of %u\n", input[dev].id, cfg_deadzone);
+		input[dev].deadzone = cfg_deadzone;
+		break;
+	}
 }
 
 void unflag_players()
@@ -2652,81 +2730,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			else
 			{
 				map_joystick_show(input[dev].map, input[dev].mmap, input[dev].num);
-			}
-		}
-
-		// Analog joystick dead zone
-		{
-			// Lightgun/wheel has no dead zone
-			if (ev->type != EV_ABS || (ev->code <= 1 && (input[dev].lightgun || input[dev].quirk == QUIRK_WHEEL)))
-			{
-				input[dev].deadzone = 0U;
-			}
-			// Dual Shock 3/4
-			else if (input[dev].quirk == QUIRK_DS3 || input[dev].quirk == QUIRK_DS4)
-			{
-				input[dev].deadzone = 10U;
-			}
-			// Default dead zone
-			else
-			{
-				input[dev].deadzone = 2U;
-			}
-
-			char cfg_format[32];
-			char cfg_uid[sizeof(*cfg.controller_deadzone)];
-
-			snprintf(cfg_format, sizeof(cfg_format), "%%%u[^ \t,]%%*[ \t,]%%u%%n", (size_t)(sizeof(cfg_uid) - 1));
-
-			const char* dev_uid = get_unique_mapping(dev, 1);
-
-			for (size_t i = 0; i < sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone); i++)
-			{
-				const char* cfg_line = cfg.controller_deadzone[i];
-				if (!cfg_line || !strlen(cfg_line)) break;
-
-				uint32_t cfg_vidpid, cfg_deadzone;
-				size_t scan_pos;
-				char vp;
-
-				if ((sscanf(cfg_line, cfg_format, cfg_uid, &cfg_deadzone, &scan_pos) < 2) ||
-					(scan_pos != strlen(cfg_line))) continue;
-
-				if ((
-					sscanf(cfg_uid, "0%*[Xx]%08x%n", &cfg_vidpid, &scan_pos) ||
-					sscanf(cfg_uid, "%08x%n", &cfg_vidpid, &scan_pos)) &&
-					(scan_pos == strlen(cfg_uid)))
-				{
-					const uint32_t vidpid = (input[dev].vid << 16) | input[dev].pid;
-					if (vidpid != cfg_vidpid) continue;
-				}
-				else if ((
-					(sscanf(cfg_uid, "%[VvPp]%*[Ii]%*[Dd]:0%*[Xx]%04x%n", &vp, &cfg_vidpid, &scan_pos) == 2) ||
-					(sscanf(cfg_uid, "%[VvPp]%*[Ii]%*[Dd]:%04x%n", &vp, &cfg_vidpid, &scan_pos) == 2)) &&
-					(scan_pos == strlen(cfg_uid)))
-				{
-					if (vp == 'V' || vp == 'v')
-					{
-						if (input[dev].vid != cfg_vidpid) continue;
-					}
-					else
-					{
-						if (input[dev].pid != cfg_vidpid) continue;
-					}
-				}
-				else if (
-					!strcasestr(input[dev].id, cfg_uid) &&
-					!strcasestr(input[dev].sysfs, cfg_uid) &&
-					!strcasestr(dev_uid, cfg_uid))
-				{
-					continue;
-				}
-
-				if (cfg_deadzone > 64) cfg_deadzone = 64;
-
-				printf("Analog device %s was given a dead zone of %u\n", input[dev].id, cfg_deadzone);
-				input[dev].deadzone = cfg_deadzone;
-				break;
 			}
 		}
 	}
@@ -3289,14 +3292,15 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 						if (input[dev].has_map == 3) Info("This joystick is not defined");
 						input[dev].has_map = 1;
 					}
-
+					
 					for (uint i = 0; i < BTN_NUM; i++)
 					{
-						if (ev->code == (input[dev].map[i] & 0xFFFF) || ev->code == (input[dev].map[i] >> 16))
-						{
+						uint64_t mask = 0;
+						if (ev->code == (input[dev].map[i] & 0xFFFF)) mask = (uint64_t)1 << i;
+						else if (ev->code == (input[dev].map[i] >> 16)) mask = (uint64_t)1 << (i + 32); // 1 is uint32_t. i spent hours realizing this.
+						if (mask) {
 							if (i <= 3 && origcode == ev->code) origcode = 0; // prevent autofire for original dpad
-							if (ev->value <= 1) joy_digital(input[dev].num, 1 << i, origcode, ev->value, i, (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1] || ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 2]));
-
+							if (ev->value <=1) joy_digital(input[dev].num, mask, origcode, ev->value, i, (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1] || ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 2]));
 							// support 2 simultaneous functions for 1 button if defined in 2 sets. No return.
 						}
 					}
@@ -3707,6 +3711,7 @@ void mergedevs()
 	make_unique(0x8282, 0x3201, 1);  // Irken Labs JAMMA Expander / Mojo Retro Adapter
 	make_unique(0x1209, 0xFACA, 1);  // ControllaBLE
 	make_unique(0x16D0, 0x127E, 1);  // Reflex Adapt to USB
+	make_unique(0x1209, 0x595A, 1);  // RetroZord adapter
 
 	if (cfg.no_merge_vid)
 	{
@@ -4374,6 +4379,7 @@ static int rumble_input_device(int devnum, uint16_t strong_mag, uint16_t weak_ma
 		fef = &input[devnum].rumble_effect;
 		fef->type = FF_RUMBLE;
 
+		fef->direction = input[devnum].quirk == QUIRK_WHEEL ? 0x4000 : 0x0000;
 		fef->u.rumble.strong_magnitude = strong_mag;
 		fef->u.rumble.weak_magnitude = weak_mag;
 		fef->replay.length = duration;
@@ -4569,8 +4575,8 @@ static void setup_wheels()
 				}
 			}
 
-			//Namco NeGcon via RetroZord adapter or Reflex Adapt
-			else if ((input[i].vid == 0x2341 && input[i].pid == 0x8036 && strstr(input[i].name, "RZordPsWheel")) ||
+			//Namco NeGcon via Arduino, RetroZord or Reflex Adapt
+			else if (((input[i].vid == 0x2341 || (input[i].vid == 0x1209 && input[i].pid == 0x595A)) && strstr(input[i].name, "RZordPsWheel")) ||
 					 (input[i].vid == 0x16D0 && input[i].pid == 0x127E && strstr(input[i].name, "ReflexPSWheel")))
 			{
 				input[i].wh_accel = 6;
@@ -4807,8 +4813,8 @@ int input_test(int getchar)
 							input[n].lightgun = 1;
 						}
 
-						//Namco Guncon via RetroZord adapter or Reflex Adapt
-						if ((input[n].vid == 0x2341 && input[n].pid == 0x8036 && (strstr(uniq, "RZordPsGun") || strstr(input[n].name, "RZordPsGun"))) ||
+						//Namco Guncon via Arduino, RetroZord or Reflex Adapt
+						if (((input[n].vid == 0x2341 || (input[n].vid == 0x1209 && input[n].pid == 0x595A)) && (strstr(uniq, "RZordPsGun") || strstr(input[n].name, "RZordPsGun"))) ||
 							(input[n].vid == 0x16D0 && input[n].pid == 0x127E && (strstr(uniq, "ReflexPSGun") || strstr(input[n].name, "ReflexPSGun"))))
 						{
 							input[n].quirk = QUIRK_LIGHTGUN;
@@ -4896,7 +4902,8 @@ int input_test(int getchar)
 
 						//Arduino and Teensy devices may share the same VID:PID, so additional field UNIQ is used to differentiate them
 						//Reflex Adapt also uses the UNIQ field to differentiate between device modes
-						if ((input[n].vid == 0x2341 || (input[n].vid == 0x16C0 && (input[n].pid>>8) == 0x4) || (input[n].vid == 0x16D0 && input[n].pid == 0x127E)) && strlen(uniq))
+						//RetroZord Adapter also uses the UNIQ field to differentiate between device modes
+						if ((input[n].vid == 0x2341 || (input[n].vid == 0x16C0 && (input[n].pid>>8) == 0x4) || (input[n].vid == 0x16D0 && input[n].pid == 0x127E) || (input[n].vid == 0x1209 && input[n].pid == 0x595A)) && strlen(uniq))
 						{
 							snprintf(input[n].idstr, sizeof(input[n].idstr), "%04x_%04x_%s", input[n].vid, input[n].pid, uniq);
 							char *p;
@@ -4937,6 +4944,7 @@ int input_test(int getchar)
 			{
 				printf("opened %d(%2d): %s (%04x:%04x:%08x) %d \"%s\" \"%s\"\n", i, input[i].bind, input[i].devname, input[i].vid, input[i].pid, input[i].unique_hash, input[i].quirk, input[i].id, input[i].name);
 				restore_player(i);
+				setup_deadzone(&ev, i);
 			}
 			unflag_players();
 		}
@@ -5658,7 +5666,7 @@ int input_poll(int getchar)
 
 	static int af[NUMPLAYERS] = {};
 	static uint32_t time[NUMPLAYERS] = {};
-	static uint32_t joy_prev[NUMPLAYERS] = {};
+	static uint64_t joy_prev[NUMPLAYERS] = {};
 
 	int ret = input_test(getchar);
 	if (getchar) return ret;
@@ -5700,8 +5708,8 @@ int input_poll(int getchar)
 
 			if (!time[i]) time[i] = GetTimer(af_delay[i]);
 			int send = 0;
-
-			int newdir = ((joy[i] & 0xF) != (joy_prev[i] & 0xF));
+			int newdir = ((((uint32_t)(joy[i]) | (uint32_t)(joy[i] >> 32)) & 0xF) != (((uint32_t)(joy_prev[i]) | (uint32_t)(joy_prev[i] >> 32)) & 0xF));
+			
 			if (joy[i] != joy_prev[i])
 			{
 				if ((joy[i] ^ joy_prev[i]) & autofire[i])
