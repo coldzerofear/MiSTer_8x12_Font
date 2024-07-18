@@ -7387,8 +7387,8 @@ void ProgressMessage(const char* title, const char* text, int current, int max)
 
 		char *buf = progress_buf;
 
-		sprintf(buf, "\n\n ");
-		buf += 3;
+		sprintf(buf, " ");
+		buf += 1;
 		
 		int len_utf8 = utf8_strlen(text);
 		int len_byte;
